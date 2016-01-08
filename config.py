@@ -1,6 +1,8 @@
 # _*_ coding: UTF-8 _*_
 from __future__ import absolute_import
 
+import os
+
 from apscheduler.executors.pool import ThreadPoolExecutor, ProcessPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
@@ -89,6 +91,13 @@ ES_PORT = '9200'
 request_timeout = 60000
 # 打开网站等待30毫秒
 timeout = 30000
+SCARPING_JS_DIR_PATH =\
+os.path.realpath(os.path.join(os.path.dirname(__file__), 'phantomjs'))
+SCARPING_JS_PATH =\
+os.path.realpath(os.path.join(SCARPING_JS_DIR_PATH,'fetch.js'))
+#phantomjs execute path
+PHANTOMJS_PATH = "/usr/bin/phantomjs"
+
 
 # Apscheduler  config start
 jobstores = {

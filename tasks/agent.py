@@ -35,16 +35,16 @@ from util.urlUtil import validateUrl
 import xml.etree.cElementTree as ET
 
 #logging.basicConfig(filename=config.LOGGER_PATH,level=logging.DEBUG)
-logger = logging.getLogger('agent')
-logger.setLevel(logging.DEBUG)
-
-fh = logging.FileHandler('./logs/agent.log')
-fh.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-fh.setFormatter(formatter)
-
-
-logger.addHandler(fh)
+# logger = logging.getLogger('agent')
+# logger.setLevel(logging.DEBUG)
+#
+# fh = logging.FileHandler('../logs/agent.log')
+# fh.setLevel(logging.DEBUG)
+# formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# fh.setFormatter(formatter)
+#
+#
+# logger.addHandler(fh)
 
 
 
@@ -181,7 +181,7 @@ def fetchLzPage(isLzUrl, lzPath, shortUrl, subTask):
     status = downloadByPath(isLzUrl, lzPath)
     if not os.path.exists(lzPath):
         print "lzpath:",lzPath
-        logger.debug('亮照页面无法访问:', isLzUrl)
+        #logger.debug('亮照页面无法访问:', isLzUrl)
         #dt = format(datetime.datetime.now(), '%Y-%m-%d %H:%M:%S')
         # qw = Website.update(updateDate=dt).where(Website.webId == subTask.webId.webId)
         # qw.execute()
@@ -196,13 +196,13 @@ def fetchLzPage(isLzUrl, lzPath, shortUrl, subTask):
             judgeLzResult(com, tempBuildWeb, shortUrl, subTask)
         except Exception, e:
             print e
-            logger.debug('亮照页面无法访问:', isLzUrl)
+            #logger.debug('亮照页面无法访问:', isLzUrl)
             # q = TaskInfo.update(state='5', remark=isLzUrl).where(TaskInfo.id == subTask.id)
             # q.execute()
 
 
 def downloadByPath(url, filePath):
-    return downloadByPhantom('/usr/bin/phantomjs', os.path.abspath('./phantomjs/fetch.js'),
+    return downloadByPhantom(config.PHANTOMJS_PATH, config.SCARPING_JS_PATH,
                              url, filePath, 'utf-8', str(config.request_timeout), str(config.timeout), '', '')
 
 
@@ -238,7 +238,7 @@ def fetchWebsite(companyName, bigTaskId, subTaskId, url):
     status = downloadByPhantom('/usr/bin/phantomjs', os.path.abspath('./phantomjs/fetch.js'),
                                url, filePath, 'utf-8', str(config.request_timeout), str(config.timeout), '', '')
     if not os.path.exists(filePath):
-        logger.debug('主页无法访问:', url)
+        #logger.debug('主页无法访问:', url)
         # 无法访问
         noAccess(dirPath, filePath, mainTask, url, subTask)
     else:
@@ -279,11 +279,11 @@ def isAlreadyExistsWeb(companyName, currentTime, expired, shortUrl, subTaskId, u
     else:
         # 判断是否有当前网站信息是否存在亮照编号
         if websiteResult.licID != '':
-            logger.debug('已经亮照:', shortUrl)
+            #logger.debug('已经亮照:', shortUrl)
             q = TaskInfo.update(state='2').where(TaskInfo.id == subTaskId)
             q.execute()
         else:
-            logger.debug('未亮照:', shortUrl)
+            #logger.debug('未亮照:', shortUrl)
             q = TaskInfo.update(state='3').where(TaskInfo.id == subTaskId)
             q.execute()
 
@@ -301,7 +301,8 @@ def fetchCycle(subtaskId, taskResultId, delayTag):
             # 抓取检测
             fetchWebsite(companyName, bigTaskId, subTask.id, url)
         else:
-            logger.debug('taskinfo记录为空:', subTask)
+            print 'taskinfo记录为空:', subTask
+            #logger.debug('taskinfo记录为空:', subTask)
 
 
 @celery.task
@@ -533,7 +534,7 @@ def checkAllLz(filePath, taskResultId):
         # 需要周期执行的任务
         executeMultiTaskInfo(taskResultId)
     else:
-        logger.debug("开始调用单次任务")
+        #logger.debug("开始调用单次任务")
         # 单次执行的任务
         executeSingleTaskInfo(taskResultId)
 
@@ -613,7 +614,7 @@ def genTaskResultFile(taskId,taskResultId,packCount):
             ET.SubElement(checkItem, 'url').text = t.webId.domain
             ET.SubElement(checkItem, 'area').text = t.webId.area
             ET.SubElement(checkItem, 'WebType').text = t.webId.type
-            checkResult = "";
+            checkResult = ""
             if t.state=="2":
                 checkResult+="1"
             elif t.state=="3":
@@ -628,7 +629,7 @@ def genTaskResultFile(taskId,taskResultId,packCount):
                 checkResult+="-5"
             elif t.state=="-1":
                 checkResult+="-6"
-            ET.SubElement(checkItem, 'ALResult').text = checkResult
+            ET.SubElement(checkItem, 'ALResult').text = t.state
         listTagString =ET.tostring(listTag,encoding="UTF-8").replace("<?xml version='1.0' encoding='UTF-8'?>","")
         dirPath = os.path.abspath(
             str.format(os.path.join('./result/{}/{}/'),  taskId, taskResultId))

@@ -17,6 +17,7 @@ from store.gentask import generateTaskId
 from store.writefile import writeXML
 from tasks.agent import checkAllLz
 from util.fileUtil import calcHash
+from util.timeUtil import calcInterval
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
                     datefmt='%a, %d %b %Y %H:%M:%S', filename='../logs/server.log', filemode='a')
@@ -146,9 +147,13 @@ class FetchService(DefinitionBase):
                         ET.SubElement(root, "State").text = Codes.PARAMSERROR
                     else:
                         if packId > 0 and packCount > 0 and listCount > 0:
+                            #传递的hash
+                            print 'md5Hash:',md5Hash
+                            #print "checkListData:",checkListData.encode("UTF-8")
+
                             # 校验hash
-                            strHash = calcHash(checkListData)
-                            print 'strHash:',strHash
+                            strHash = calcHash(checkListData.encode("UTF-8"))
+                            print "strHash:",strHash
                             if strHash==md5Hash:
                                 ET.SubElement(root, "TaskId").text = taskId
                                 dirPath = os.path.abspath(
@@ -179,7 +184,7 @@ class FetchService(DefinitionBase):
                             else:
                                 # 记录不完整的packid
                                 pId = taskEnity.missPackId
-                                if pId != "":
+                                if pId != "" and pId.find(str(packId))==-1:
                                     packIds = pId + "," + str(packId)
                                 else:
                                     packIds = str(packId)
@@ -243,7 +248,8 @@ class FetchService(DefinitionBase):
 
     def getCheckTaskList(self, judgeTaskResult, packId, resultId, root, taskId):
         if packId > 0:
-                packCount = len(os.listdir('../temp/%s' % taskId))
+                fname = os.path.abspath(str.format('../result/{}/{}/',taskId,resultId))
+                packCount = len(os.listdir(fname))
                 print "packCount:",packCount
                 # 校验packid是否在有效范围内
                 if packId > packCount:
@@ -254,20 +260,22 @@ class FetchService(DefinitionBase):
             # PackId为空,默认返回包编号为1的信息
             self.getCheckListResult(1, root, taskId,resultId,judgeTaskResult)
 
-
+    #组装任务结果
     def getCheckListResult(self, packId, root, taskId,resultId,judgeTaskResult):
-        if os.path.exists('../temp/%s/%s.xml' % (taskId, packId)):
+        fname  = os.path.abspath(str.format('../result/{}/{}/{}.xml',taskId, resultId,packId))
+        print "fname:",fname
+        if os.path.exists(fname):
             ET.SubElement(root, "ResultId").text = str(resultId)
             listCount = TaskInfo.select().where(TaskInfo.taskResultId == judgeTaskResult).count()
             ET.SubElement(root, "ListCount").text = str(listCount)
             # 获取指定包编号的检查结果信息
-            checklistResult = ET.ElementTree(file='../temp/%s/%s.xml' % (taskId, packId))
+            checklistResult = ET.ElementTree(file=fname)
             checklist = ET.SubElement(root, "CheckList")
             counter = 0
             for elem in checklistResult.iter(tag="CheckItem"):
                 checklist.append(elem)
                 counter+=1
-            fileCheckListString = open('../temp/%s/%s.xml' % (taskId, packId), 'r').read()
+            fileCheckListString = ET.tostring(checklist,encoding="UTF-8").replace("<?xml version='1.0' encoding='UTF-8'?>","")
             strHash = calcHash(fileCheckListString)
             ET.SubElement(root, "PackCount").text = str(counter)
             ET.SubElement(root, "PackId").text = str(packId)
@@ -275,23 +283,6 @@ class FetchService(DefinitionBase):
             ET.SubElement(root, "State").text = Codes.SUCCESS
         else:
             ET.SubElement(root, "State").text = Codes.INNERERROR
-
-    # 单次巡检的任务结果构建
-    def buildSingleTask(self, root, taskId):
-        ET.SubElement(root, "State").text = Codes.SUCCESS
-        taskinfos = TaskInfo.select(TaskInfo.url, TaskInfo.cname, TaskInfo.state) \
-            .where(TaskInfo.taskResultId == (
-            TaskResult.select(TaskResult.taskResultId).where(TaskResult.taskId == taskId)))
-        listTag = ET.SubElement(root, 'tasks')
-        for t in taskinfos:
-            dict = ET.SubElement(listTag, "task")
-            key = ET.SubElement(dict, "cname")
-            key.text = t.cname
-            string = ET.SubElement(dict, "url")
-            string.text = t.url
-            state = ET.SubElement(dict, "state")
-            state.text = t.state
-
     # 添加接收邮件
     @soap(String, String, String, _returns=String)
     def addReceivedMail(self, userName, password, _email):
@@ -318,7 +309,67 @@ class FetchService(DefinitionBase):
     #获取报告
     @soap(String, String, String, String, _returns=String)
     def getALReport(self, userName, password, taskId, resultId):
-        pass
+        root = ET.Element("ReturnInfo")
+        try:
+            user_result = validateuser(userName, password)
+            if user_result is not None:
+                if taskId != "" and Task.select().where(Task.taskId==taskId).count()>0:
+                    ET.SubElement(root, "TaskId").text = str(taskId)
+                    if resultId=="":
+                        #获取最新的任务检查结果报告
+                        checkTaskResult = TaskResult.select().order_by(TaskResult.overTime.desc())\
+                            .paginate(0, 1).where((TaskResult.state=='2') & (TaskResult.taskId==taskId))
+                        if checkTaskResult is not None:
+                            for t in checkTaskResult:
+                                self.buildReport(resultId, root, t)
+                        else:
+                            checkTaskResult = TaskResult.select().order_by(TaskResult.overTime.desc())\
+                            .paginate(0, 1).where((TaskResult.state=='1') & (TaskResult.taskId==taskId))
+                            if len(checkTaskResult)>0:
+                                ET.SubElement(root, "State").text = Codes.TASKNOCOMPLETE
+                    else:
+                        #校验任务编号与任务结果编号是否匹配
+                        validCount = TaskResult.select().where((TaskResult.taskResultId==resultId) &(TaskResult.taskId==taskId)).count()
+                        if validCount>0:
+                            taskResult = TaskResult.getOne((TaskResult.taskResultId == resultId) &(TaskResult.state=='2'))
+                            if taskResult!=None:
+                                self.buildReport(resultId, root, taskResult)
+                            else:
+                                ET.SubElement(root, "State").text = Codes.TASKNOCOMPLETE
+
+                        else:
+                            ET.SubElement(root, "State").text = Codes.PARAMSERROR
+                else:
+                    ET.SubElement(root, "State").text = Codes.TASKIDERROR
+            else:
+                ET.SubElement(root, "State").text = Codes.USERERROR
+        except Exception,e:
+            print e
+            ET.SubElement(root, "State").text = Codes.INNERERROR
+        return ET.tostring(root, encoding="UTF-8")
+
+    #构建报告信息
+    def buildReport(self, resultId, root, taskResult):
+        ET.SubElement(root, "ResultId").text = str(resultId)
+        listCount = TaskInfo.select().where(TaskInfo.taskResultId == taskResult).count()
+        errCount = ErrorWeb.select().where(ErrorWeb.resultId == taskResult).count()
+        count = str(listCount + errCount)
+        ET.SubElement(root, "ListCount").text = str(count)
+        ET.SubElement(root, 'StartTime').text = taskResult.createTime.strftime('%Y-%m-%d %H:%M:%S')
+        ET.SubElement(root, 'FinishTime').text = taskResult.overTime.strftime('%Y-%m-%d %H:%M:%S')
+        # 历时
+        taskHour = calcInterval(taskResult.overTime, taskResult.createTime, 'h')
+        ET.SubElement(root, "Lasting").text = str(taskHour) + "小时"
+        alcount = TaskInfo.select().where((TaskInfo.taskResultId == resultId) & (TaskInfo.state == '2')).count()
+        nonealCount = TaskInfo.select().where((TaskInfo.taskResultId == resultId) & (TaskInfo.state == '3')).count()
+        webNoAccessCount = TaskInfo.select().where((TaskInfo.taskResultId == resultId) & ((TaskInfo.state == '7')|(TaskInfo.state == '5'))).count()
+        disconnectCount = TaskInfo.select().where((TaskInfo.taskResultId == resultId) & (TaskInfo.state == '5')).count()
+        errcount = TaskInfo.select().where((TaskInfo.taskResultId == resultId) & (TaskInfo.state == '4')).count()
+        ET.SubElement(root, "ALCount").text = str(alcount)
+        ET.SubElement(root, "NoneALCount").text = str(nonealCount)
+        ET.SubElement(root, "DisconnectCount").text = str(disconnectCount)
+        ET.SubElement(root, "WrongALCount").text = str(errcount)
+        ET.SubElement(root, "State").text = Codes.SUCCESS
 
     # 获取任务清单
     @soap(String, String, String, String, _returns=String)

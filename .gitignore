@@ -1,0 +1,12 @@
+*.pyc
+*.idea
+logs/
+test/
+data/
+*.log
+*.txt
+*.sqlite
+*.html
+lz/
+temp/
+result/
